@@ -350,14 +350,18 @@ class Deep_RNN:
 
 if __name__ == '__main__':
     rnn = Deep_RNN(2)
-    rnn.preprocess('./five_poem.txt')
+    rnn.preprocess('./five_poem.txt')    
     sample_count = 1
-    for i in range(10000):
-        rnn.train()
-        if i % sample_count == 0:
-            word = rnn.sample()
-            print(i, ' --> sample: ', word)
-    print('over!')
-    word = rnn.sample()
-    print(word)
-    
+    try:
+        for i in range(10000):
+            rnn.train()
+            if i % sample_count == 0:
+                word = rnn.sample()
+                print(i, ' --> sample: ', word)
+    except KeyboardInterrupt as e:
+        print('stop!')
+    finally:
+        print('over!')
+        rnn.save()
+        word = rnn.sample()
+        print(word)
