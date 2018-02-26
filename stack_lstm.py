@@ -50,16 +50,16 @@ class Param:
         self.bv = 0.5*np.random.rand(osize, 1)
     
     def save(self, index):
-        np.save('./save/'+index+'_wf', self.wf)
-        np.save('./save/'+index+'_bf', self.bf)
-        np.save('./save/'+index+'_wc', self.wc)
-        np.save('./save/'+index+'_bc', self.bc)
-        np.save('./save/'+index+'_wi', self.wi)
-        np.save('./save/'+index+'_bi', self.bi)
-        np.save('./save/'+index+'_wo', self.wo)
-        np.save('./save/'+index+'_bo', self.bo)
-        np.save('./save/'+index+'_wv', self.wv)
-        np.save('./save/'+index+'_bv', self.bv)
+        np.save('./save/'+str(index)+'_wf', self.wf)
+        np.save('./save/'+str(index)+'_bf', self.bf)
+        np.save('./save/'+str(index)+'_wc', self.wc)
+        np.save('./save/'+str(index)+'_bc', self.bc)
+        np.save('./save/'+str(index)+'_wi', self.wi)
+        np.save('./save/'+str(index)+'_bi', self.bi)
+        np.save('./save/'+str(index)+'_wo', self.wo)
+        np.save('./save/'+str(index)+'_bo', self.bo)
+        np.save('./save/'+str(index)+'_wv', self.wv)
+        np.save('./save/'+str(index)+'_bv', self.bv)
 
 
 class Layer:
@@ -266,16 +266,7 @@ class Deep_RNN:
         self.int2word = {}
         self.layers = []
 
-    def preprocess(self, path):
-        self.data = open(path, mode='r', encoding='utf-8').read()
-        self.length = self.data.__len__()        
-        self.sd = list(set(self.data))
-        self.vsize = self.sd.__len__()
-        print('length:', self.length, '  vsize:', self.vsize)
-        for i, v in enumerate(self.sd):
-            self.word2int[v] = i
-            self.int2word[i] = v
-        
+    def build_layer(self):
         self.hsize = 300
         for i in range(self.layer_size):
             osize = self.hsize
@@ -287,6 +278,16 @@ class Deep_RNN:
             if i == 0:
                 isize = self.hsize + self.vsize
             self.layers.append(Layer(self.hsize, isize, osize, is_output))
+
+    def preprocess(self, path):
+        self.data = open(path, mode='r', encoding='utf-8').read()
+        self.length = self.data.__len__()        
+        self.sd = list(set(self.data))
+        self.vsize = self.sd.__len__()
+        print('length:', self.length, '  vsize:', self.vsize)
+        for i, v in enumerate(self.sd):
+            self.word2int[v] = i
+            self.int2word[i] = v
 
     def sample(self, length=20):
         n = np.random.randint(0, self.vsize)
@@ -309,14 +310,14 @@ class Deep_RNN:
 
     def save(self):
         f = open('./save/layer_size', 'w', encoding='utf-8')
-        f.write(self.layer_size)
+        f.write(str(self.layer_size))
         f.flush()
         f.close()
         for i, v in enumerate(self.layers):
             v.lstm.param.save(i)
         f = open('./save/word', 'w', encoding='utf-8')
         for k in self.word2int.keys():
-            f.write(k+':'+self.word2int[k]+'\n')
+            f.write(k+':'+str(self.word2int[k])+'\n')
         f.flush()
         f.close()
 
@@ -350,10 +351,11 @@ class Deep_RNN:
 
 if __name__ == '__main__':
     rnn = Deep_RNN(2)
-    rnn.preprocess('./five_poem.txt')    
+    rnn.preprocess('./five_poem.txt') 
+    rnn.build_layer()   
     sample_count = 1
     try:
-        for i in range(10000):
+        for i in range(3000):
             rnn.train()
             if i % sample_count == 0:
                 word = rnn.sample()
