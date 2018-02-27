@@ -1,8 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
+import logging
 import win_unicode_console
 win_unicode_console.enable()
+
+ 
+logger = logging.getLogger("stack_lstm")
+formatter = logging.Formatter('%(asctime)s %(levelname)-8s: %(message)s')
+file_handler = logging.FileHandler("train.log")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+logger.setLevel(logging.INFO)
+logger.removeHandler(file_handler)
 
 def num2one_hot(n, size):
     targets = np.array([n]).reshape(-1)
@@ -91,7 +101,8 @@ class Layer:
                 loss += -np.dot(np.log(y_hat).T, y)
                 self.err_arr.append((y_hat - y))
         if self.batch % self.print_count == 0 and self.is_output:
-            print(self.batch, ' --> loss:', loss)
+            logging.info(str(self.batch) + ' ---> loss: ' + str(loss))
+            # print(self.batch, ' --> loss:', loss)
         return out_arr
 
     def backward(self, err=None):
@@ -267,7 +278,7 @@ class Deep_RNN:
         self.layers = []
 
     def build_layer(self):
-        self.hsize = 300
+        self.hsize = 500
         for i in range(self.layer_size):
             osize = self.hsize
             isize = self.hsize + self.hsize
@@ -355,15 +366,19 @@ if __name__ == '__main__':
     rnn.build_layer()   
     sample_count = 1
     try:
-        for i in range(3000):
+        for i in range(1000):
             rnn.train()
             if i % sample_count == 0:
                 word = rnn.sample()
-                print(i, ' --> sample: ', word)
+                logging.info(str(i) + ' ---> sample: ' + word)
+                # print(i, ' --> sample: ', word)
     except KeyboardInterrupt as e:
-        print('stop!')
+        logging.error('stop!')
+        # print('stop!')
     finally:
-        print('over!')
+        logging.error('over!')
+        # print('over!')
         rnn.save()
         word = rnn.sample()
-        print(word)
+        logging.info(word)
+        # print(word)
