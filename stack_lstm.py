@@ -8,11 +8,11 @@ win_unicode_console.enable()
  
 logger = logging.getLogger("stack_lstm")
 formatter = logging.Formatter('%(asctime)s %(levelname)-8s: %(message)s')
-file_handler = logging.FileHandler("train.log")
+file_handler = logging.FileHandler("train.log", encoding='utf-8')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.setLevel(logging.INFO)
-logger.removeHandler(file_handler)
+# logger.removeHandler(file_handler)
 
 def num2one_hot(n, size):
     targets = np.array([n]).reshape(-1)
@@ -101,7 +101,7 @@ class Layer:
                 loss += -np.dot(np.log(y_hat).T, y)
                 self.err_arr.append((y_hat - y))
         if self.batch % self.print_count == 0 and self.is_output:
-            logging.info(str(self.batch) + ' ---> loss: ' + str(loss))
+            logger.info(str(self.batch) + ' ---> loss: ' + str(loss))
             # print(self.batch, ' --> loss:', loss)
         return out_arr
 
@@ -278,7 +278,7 @@ class Deep_RNN:
         self.layers = []
 
     def build_layer(self):
-        self.hsize = 500
+        self.hsize = 7
         for i in range(self.layer_size):
             osize = self.hsize
             isize = self.hsize + self.hsize
@@ -295,7 +295,8 @@ class Deep_RNN:
         self.length = self.data.__len__()        
         self.sd = list(set(self.data))
         self.vsize = self.sd.__len__()
-        print('length:', self.length, '  vsize:', self.vsize)
+        logger.info('length: ' + str(self.length) + ' vsize: ' + str(self.vsize))
+        # print('length:', self.length, '  vsize:', self.vsize)
         for i, v in enumerate(self.sd):
             self.word2int[v] = i
             self.int2word[i] = v
@@ -309,7 +310,7 @@ class Deep_RNN:
         for i in range(self.layer_size):
             h_prev_arr.append(np.zeros((self.hsize, 1)))
             c_prev_arr.append(np.zeros((self.hsize, 1)))
-        for i in range(length):
+        for i in range(length-1):
             for j in range(self.layer_size):
                 input_vector, h_prev_arr[j], c_prev_arr[j] = self.layers[j].sample_step(input_vector, h_prev_arr[j], c_prev_arr[j])
             word.append(input_vector)
@@ -364,21 +365,21 @@ if __name__ == '__main__':
     rnn = Deep_RNN(2)
     rnn.preprocess('./five_poem.txt') 
     rnn.build_layer()   
-    sample_count = 1
+    sample_count = 100
     try:
-        for i in range(1000):
+        for i in range(100000):
             rnn.train()
             if i % sample_count == 0:
                 word = rnn.sample()
-                logging.info(str(i) + ' ---> sample: ' + word)
+                logger.info(str(i) + ' ---> sample: ' + word)
                 # print(i, ' --> sample: ', word)
     except KeyboardInterrupt as e:
-        logging.error('stop!')
+        logger.error('stop!')
         # print('stop!')
     finally:
-        logging.error('over!')
+        logger.info('over!')
         # print('over!')
         rnn.save()
         word = rnn.sample()
-        logging.info(word)
+        logger.info(word)
         # print(word)
