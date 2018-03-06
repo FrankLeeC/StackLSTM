@@ -2,6 +2,7 @@
 
 import numpy as np
 import logging
+import signal
 import win_unicode_console
 win_unicode_console.enable()
 
@@ -13,6 +14,30 @@ file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.setLevel(logging.INFO)
 # logger.removeHandler(file_handler)
+use_log = False
+print_count = 20
+batch_size = 5
+layer_size = 2
+hsize = 300
+sample_count = 10
+epochs = 1000
+
+def output(s):
+    if not use_log:
+        print(s)
+    else:
+        logger.info(s)
+
+rnn =None
+
+def terminate(signum, frame):
+    output('terminate')
+    rnn.save()
+    word = rnn.sample()
+    output('last sample:' + word)
+    exit(0)
+
+signal.signal(signal.SIGTERM, terminate)
 
 def num2one_hot(n, size):
     targets = np.array([n]).reshape(-1)
@@ -82,7 +107,7 @@ class Layer:
         self.num_step = num_step
         self.err_arr = []
         self.batch = 0
-        self.print_count = 20
+        self.print_count = print_count
 
     def sample_step(self, input_vector, h_prev, c_prev):
         return self.lstm.sample_step(input_vector, h_prev, c_prev)
@@ -107,8 +132,7 @@ class Layer:
                 # self.err_arr[i] += y_hat - y
                 self.err_arr.append((y_hat - y))
         if self.batch % self.print_count == 0 and self.is_output:
-            # logger.info(str(self.batch) + ' ---> loss: ' + str(loss))
-            print(self.batch, ' --> loss:', loss)
+            output(str(self.batch) + ' ---> loss: ' + str(loss))
         return out_arr
 
     def backward(self, err=None, update=False):
@@ -127,7 +151,6 @@ class LSTM:
         self.batch_size = batch_size
         self.param = p
         self.is_output = is_output
-        # self.is_input = is_input
         self.z_arr, self.f_arr, self.cs_arr, self.i_arr, self.c_arr, self.o_arr, self.h_arr, self.v_arr, self.y_arr = [], [], [], [], [], [], [], [], []
         self.init_adagrad()
         self.dwf = np.zeros_like(self.param.wf)
@@ -319,8 +342,7 @@ class Deep_RNN:
         self.length = self.data.__len__()        
         self.sd = list(set(self.data))
         self.vsize = self.sd.__len__()
-        # logger.info('length: ' + str(self.length) + ' vsize: ' + str(self.vsize) + ' hsize:' + str(self.hsize))
-        print('length:', self.length, '  vsize:', self.vsize, ' hsize:', self.hsize)
+        output('length: ' + str(self.length) + ' vsize: ' + str(self.vsize) + ' hsize:' + str(self.hsize))
         for i, v in enumerate(self.sd):
             self.word2int[v] = i
             self.int2word[i] = v
@@ -389,24 +411,19 @@ class Deep_RNN:
                     
 
 if __name__ == '__main__':
-    rnn = Deep_RNN(5, 2, 300)
+    rnn = Deep_RNN(batch_size, layer_size=layer_size, hsize=hsize)
     rnn.preprocess('./five_poem.txt') 
     rnn.build_layer()   
-    sample_count = 10
     try:
-        for i in range(1000):
+        for i in range(epochs):
             rnn.train()
             if i % sample_count == 0:
                 word = rnn.sample()
-                # logger.info(str(i) + ' ---> sample: ' + word)
-                print(i, ' --> sample: ', word)
+                output(str(i) + ' ---> sample: ' + word)
     except KeyboardInterrupt as e:
-        # logger.error('stop!')
-        print('stop!')
+        output('stop!')
     finally:
-        # logger.info('over!')
-        print('over!')
+        output('over!')
         rnn.save()
         word = rnn.sample()
-        # logger.info(word)
-        print(word)
+        output(word)
