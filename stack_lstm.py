@@ -74,16 +74,21 @@ class Param:
 
 class Layer:
 
-    def __init__(self, hsize, isize, osize, is_output=False):
+    def __init__(self, batch_size, num_step, hsize, isize, osize, is_output=False):
         self.p = Param(hsize, isize, osize)
-        self.lstm = LSTM(self.p, is_output)
+        self.lstm = LSTM(batch_size, self.p, is_output)
         self.is_output = is_output
+        self.batch_size = batch_size
+        self.num_step = num_step
         self.err_arr = []
         self.batch = 0
-        self.print_count = 100
+        self.print_count = 20
 
     def sample_step(self, input_vector, h_prev, c_prev):
         return self.lstm.sample_step(input_vector, h_prev, c_prev)
+
+    # def clear_error(self):
+    #     self.err_arr = [np.zeros((self.p.osize, 1))]*self.num_step       
 
     def forward(self, x_arr, y_arr=None):
         self.err_arr = []
@@ -99,30 +104,42 @@ class Layer:
             if self.is_output:
                 y = y_arr[i]
                 loss += -np.dot(np.log(y_hat).T, y)
+                # self.err_arr[i] += y_hat - y
                 self.err_arr.append((y_hat - y))
         if self.batch % self.print_count == 0 and self.is_output:
-            logger.info(str(self.batch) + ' ---> loss: ' + str(loss))
-            # print(self.batch, ' --> loss:', loss)
+            # logger.info(str(self.batch) + ' ---> loss: ' + str(loss))
+            print(self.batch, ' --> loss:', loss)
         return out_arr
 
-    def backward(self, err=None):
+    def backward(self, err=None, update=False):
         clip = 0.5
         dx_arr = None
         if self.is_output:
-            dx_arr = self.lstm.backward(self.err_arr, clip)
+            dx_arr = self.lstm.backward(self.err_arr, clip, upd=update)
         else:
-            dx_arr = self.lstm.backward(err, clip)
+            dx_arr = self.lstm.backward(err, clip, upd=update)
         return dx_arr
 
 
 class LSTM:
 
-    def __init__(self, p, is_output=False):
+    def __init__(self, batch_size, p, is_output=False):
+        self.batch_size = batch_size
         self.param = p
         self.is_output = is_output
         # self.is_input = is_input
         self.z_arr, self.f_arr, self.cs_arr, self.i_arr, self.c_arr, self.o_arr, self.h_arr, self.v_arr, self.y_arr = [], [], [], [], [], [], [], [], []
         self.init_adagrad()
+        self.dwf = np.zeros_like(self.param.wf)
+        self.dbf = np.zeros_like(self.param.bf)
+        self.dwc = np.zeros_like(self.param.wc)
+        self.dbc = np.zeros_like(self.param.bc)
+        self.dwi = np.zeros_like(self.param.wi)
+        self.dbi = np.zeros_like(self.param.bi)
+        self.dwo = np.zeros_like(self.param.wo)
+        self.dbo = np.zeros_like(self.param.bo)
+        self.dwv = np.zeros_like(self.param.wv)
+        self.dbv = np.zeros_like(self.param.bv)
 
     def init_adagrad(self):
         self.wf_g = Adagrad(np.zeros_like(self.param.wf))
@@ -152,7 +169,19 @@ class LSTM:
         return y, h, c
 
     def clear(self):
-        self.z_arr, self.f_arr, self.cs_arr, self.i_arr, self.c_arr, self.o_arr, self.h_arr, self.v_arr, self.y_arr = [], [], [], [], [], [], [], [], []     
+        self.z_arr, self.f_arr, self.cs_arr, self.i_arr, self.c_arr, self.o_arr, self.h_arr, self.v_arr, self.y_arr = [], [], [], [], [], [], [], [], [] 
+    
+    def clear_grad(self):
+        self.dwf = np.zeros_like(self.param.wf)
+        self.dbf = np.zeros_like(self.param.bf)
+        self.dwc = np.zeros_like(self.param.wc)
+        self.dbc = np.zeros_like(self.param.bc)
+        self.dwi = np.zeros_like(self.param.wi)
+        self.dbi = np.zeros_like(self.param.bi)
+        self.dwo = np.zeros_like(self.param.wo)
+        self.dbo = np.zeros_like(self.param.bo)
+        self.dwv = np.zeros_like(self.param.wv)
+        self.dbv = np.zeros_like(self.param.bv)    
 
     def step(self, x, h_prev, c_prev):   
         z = np.row_stack((x, h_prev))
@@ -177,36 +206,26 @@ class LSTM:
         self.y_arr.append(y)
         return y, h, c
 
-    def backward(self, err, clip = 1.0):
+    def backward(self, err, clip = 1.0, upd=False):
         l = self.y_arr.__len__()
-        dwf = np.zeros_like(self.param.wf)
-        dbf = np.zeros_like(self.param.bf)
-        dwc = np.zeros_like(self.param.wc)
-        dbc = np.zeros_like(self.param.bc)
-        dwi = np.zeros_like(self.param.wi)
-        dbi = np.zeros_like(self.param.bi)
-        dwo = np.zeros_like(self.param.wo)
-        dbo = np.zeros_like(self.param.bo)
-        dwv = np.zeros_like(self.param.wv)
-        dbv = np.zeros_like(self.param.bv)
         dc_next = np.zeros((self.param.hsize, 1))
         dh_next = np.zeros((self.param.hsize, 1))
         dx_arr = [np.zeros((self.param.isize - self.param.hsize, 1))] * err.__len__()
         for i in range(l):
             j = l - i - 1
             dh = None
-            if self.is_output:                
+            if self.is_output:
                 dv = err[j]  # vsize x 1
-                dwv += np.dot(dv, self.h_arr[j].T)  # vsize x hsize
-                dbv += dv
+                self.dwv += np.dot(dv, self.h_arr[j].T)  # vsize x hsize
+                self.dbv += dv
                 dh = np.dot(self.param.wv.T, dv) + dh_next # hsize x 1 
             else:
                 dh = err[j] + dh_next
             do = dh*np.tanh(self.c_arr[j])  # hsize x 1
             dc = dh*self.o_arr[j]*dtanh(np.tanh(self.c_arr[j])) + dc_next  # hsize x 1
             dc_next = dc*self.f_arr[j]
-            dwo +=  np.dot(do*dsigmoid(self.o_arr[j]), self.z_arr[j].T)  # hsize x vsize
-            dbo += do*dsigmoid(self.o_arr[j])  # hsize x 1
+            self.dwo +=  np.dot(do*dsigmoid(self.o_arr[j]), self.z_arr[j].T)  # hsize x vsize
+            self.dbo += do*dsigmoid(self.o_arr[j])  # hsize x 1
             df = None
             if j == 0:
                 df = dc*np.zeros((self.param.hsize, 1)) 
@@ -214,45 +233,47 @@ class LSTM:
                 df = dc*self.c_arr[j-1]
             di = dc*self.cs_arr[j]  # hsize x 1
             dcs = dc*self.i_arr[j]
-            dwi += np.dot(di*dsigmoid(self.i_arr[j]), self.z_arr[j].T)  # hsize x vsize
-            dbi += di*dsigmoid(self.i_arr[j])
-            dwc += np.dot(dcs*dtanh(self.cs_arr[j]), self.z_arr[j].T)
-            dbc += dcs*dtanh(self.cs_arr[j])
-            dwf += np.dot(df*dsigmoid(self.f_arr[j]), self.z_arr[j].T)
-            dbf += df*dsigmoid(self.f_arr[j])
+            self.dwi += np.dot(di*dsigmoid(self.i_arr[j]), self.z_arr[j].T)  # hsize x vsize
+            self.dbi += di*dsigmoid(self.i_arr[j])
+            self.dwc += np.dot(dcs*dtanh(self.cs_arr[j]), self.z_arr[j].T)
+            self.dbc += dcs*dtanh(self.cs_arr[j])
+            self.dwf += np.dot(df*dsigmoid(self.f_arr[j]), self.z_arr[j].T)
+            self.dbf += df*dsigmoid(self.f_arr[j])
             dz = np.dot(self.param.wf.T, df*dsigmoid(self.f_arr[j])) + np.dot(self.param.wc.T, dcs*dtanh(self.cs_arr[j])) + \
                 np.dot(self.param.wi.T, di*dsigmoid(self.i_arr[j])) + np.dot(self.param.wo.T, do*dsigmoid(self.o_arr[j]))
             dh_next = dz[self.param.isize - self.param.hsize:]
             dx_arr[j] = dz[:self.param.isize - self.param.hsize]
 
-        # update
-        dwf = np.clip(dwf, -clip, clip)
-        dbf = np.clip(dbf, -clip, clip)
-        dwc = np.clip(dwc, -clip, clip)
-        dbc = np.clip(dbc, -clip, clip)
-        dwi = np.clip(dwi, -clip, clip)
-        dbi = np.clip(dbi, -clip, clip)
-        dwo = np.clip(dwo, -clip, clip)
-        dbo = np.clip(dbo, -clip, clip)
-        if self.is_output:
-            dwv = np.clip(dwv, -clip, clip)
-            dbv = np.clip(dbv, -clip, clip)
-        self.update(dwf, dbf, dwc, dbc, dwi, dbi, dwo, dbo, dwv, dbv)
         self.clear()
+        if upd:        
+            # update
+            self.dwf = np.clip(self.dwf/self.batch_size, -clip, clip)
+            self.dbf = np.clip(self.dbf/self.batch_size, -clip, clip)
+            self.dwc = np.clip(self.dwc/self.batch_size, -clip, clip)
+            self.dbc = np.clip(self.dbc/self.batch_size, -clip, clip)
+            self.dwi = np.clip(self.dwi/self.batch_size, -clip, clip)
+            self.dbi = np.clip(self.dbi/self.batch_size, -clip, clip)
+            self.dwo = np.clip(self.dwo/self.batch_size, -clip, clip)
+            self.dbo = np.clip(self.dbo/self.batch_size, -clip, clip)
+            if self.is_output:
+                self.dwv = np.clip(self.dwv/self.batch_size, -clip, clip)
+                self.dbv = np.clip(self.dbv/self.batch_size, -clip, clip)
+            self.update()
         return dx_arr
 
-    def update(self, dwf, dbf, dwc, dbc, dwi, dbi, dwo, dbo, dwv, dbv):
-        self.param.wf += self.wf_g.get_grad(dwf)
-        self.param.bf += self.bf_g.get_grad(dbf)
-        self.param.wc += self.wc_g.get_grad(dwc)
-        self.param.bc += self.bc_g.get_grad(dbc)
-        self.param.wi += self.wi_g.get_grad(dwi)
-        self.param.bi += self.bi_g.get_grad(dbi)
-        self.param.wo += self.wo_g.get_grad(dwo)
-        self.param.bo += self.bo_g.get_grad(dbo)
+    def update(self):
+        self.param.wf += self.wf_g.get_grad(self.dwf)
+        self.param.bf += self.bf_g.get_grad(self.dbf)
+        self.param.wc += self.wc_g.get_grad(self.dwc)
+        self.param.bc += self.bc_g.get_grad(self.dbc)
+        self.param.wi += self.wi_g.get_grad(self.dwi)
+        self.param.bi += self.bi_g.get_grad(self.dbi)
+        self.param.wo += self.wo_g.get_grad(self.dwo)
+        self.param.bo += self.bo_g.get_grad(self.dbo)
         if self.is_output:
-            self.param.wv += self.wv_g.get_grad(dwv)
-            self.param.bv += self.bv_g.get_grad(dbv)
+            self.param.wv += self.wv_g.get_grad(self.dwv)
+            self.param.bv += self.bv_g.get_grad(self.dbv)
+        self.clear_grad()
 
 
 class Adagrad:
@@ -271,14 +292,17 @@ class Adagrad:
 
 class Deep_RNN:
 
-    def __init__(self, layer_size=3):
+    def __init__(self, batch_size, layer_size=3, hsize=100):
         self.layer_size = layer_size
+        self.batch_size = batch_size
         self.word2int = {}
         self.int2word = {}
         self.layers = []
+        self.current_iter = 0
+        self.num_step = 25 
+        self.hsize = hsize
 
     def build_layer(self):
-        self.hsize = 7
         for i in range(self.layer_size):
             osize = self.hsize
             isize = self.hsize + self.hsize
@@ -288,15 +312,15 @@ class Deep_RNN:
                 is_output = True
             if i == 0:
                 isize = self.hsize + self.vsize
-            self.layers.append(Layer(self.hsize, isize, osize, is_output))
+            self.layers.append(Layer(self.batch_size, self.num_step, self.hsize, isize, osize, is_output))
 
     def preprocess(self, path):
         self.data = open(path, mode='r', encoding='utf-8').read()
         self.length = self.data.__len__()        
         self.sd = list(set(self.data))
         self.vsize = self.sd.__len__()
-        logger.info('length: ' + str(self.length) + ' vsize: ' + str(self.vsize))
-        # print('length:', self.length, '  vsize:', self.vsize)
+        # logger.info('length: ' + str(self.length) + ' vsize: ' + str(self.vsize) + ' hsize:' + str(self.hsize))
+        print('length:', self.length, '  vsize:', self.vsize, ' hsize:', self.hsize)
         for i, v in enumerate(self.sd):
             self.word2int[v] = i
             self.int2word[i] = v
@@ -334,13 +358,12 @@ class Deep_RNN:
         f.close()
 
     def train(self):
-        start = 0
-        num_step = 25        
+        start = 0       
         while True:
             if start >= self.length:
                 break
-            w = self.data[start:start+num_step]
-            start += num_step
+            w = self.data[start:start+self.num_step]
+            start += self.num_step
             x_arr = []
             y_arr = []
             for j, v in enumerate(w):
@@ -352,34 +375,38 @@ class Deep_RNN:
                     x_arr = v.forward(x_arr)
                 else:
                     output = v.forward(x_arr, y_arr)
+            self.current_iter += 1
+            upd = False
+            if self.current_iter % self.batch_size == 0:
+                upd = True
             err = None
             for k in range(self.layer_size):
                 idx = self.layer_size - k - 1
                 if k == 0:
-                    err = self.layers[idx].backward()
+                    err = self.layers[idx].backward(update=upd)
                 else:
-                    err = self.layers[idx].backward(err)
+                    err = self.layers[idx].backward(err, update=upd)
                     
 
 if __name__ == '__main__':
-    rnn = Deep_RNN(2)
+    rnn = Deep_RNN(5, 2, 300)
     rnn.preprocess('./five_poem.txt') 
     rnn.build_layer()   
-    sample_count = 100
+    sample_count = 10
     try:
-        for i in range(100000):
+        for i in range(1000):
             rnn.train()
             if i % sample_count == 0:
                 word = rnn.sample()
-                logger.info(str(i) + ' ---> sample: ' + word)
-                # print(i, ' --> sample: ', word)
+                # logger.info(str(i) + ' ---> sample: ' + word)
+                print(i, ' --> sample: ', word)
     except KeyboardInterrupt as e:
-        logger.error('stop!')
-        # print('stop!')
+        # logger.error('stop!')
+        print('stop!')
     finally:
-        logger.info('over!')
-        # print('over!')
+        # logger.info('over!')
+        print('over!')
         rnn.save()
         word = rnn.sample()
-        logger.info(word)
-        # print(word)
+        # logger.info(word)
+        print(word)
